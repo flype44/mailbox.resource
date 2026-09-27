@@ -1,0 +1,2504 @@
+TABLE OF CONTENTS
+
+mailbox.resource/MB_AllocateBuffer
+mailbox.resource/MB_AllocateMemory
+mailbox.resource/MB_BlankScreen
+mailbox.resource/MB_GetAlphaMode
+mailbox.resource/MB_GetARMMemory
+mailbox.resource/MB_GetBoardMACAddress
+mailbox.resource/MB_GetBoardModel
+mailbox.resource/MB_GetBoardRevision
+mailbox.resource/MB_GetBoardSerial
+mailbox.resource/MB_GetClockRate
+mailbox.resource/MB_GetClockRateMax
+mailbox.resource/MB_GetClockRateMeasured
+mailbox.resource/MB_GetClockRateMin
+mailbox.resource/MB_GetClockState
+mailbox.resource/MB_GetCommandLine
+mailbox.resource/MB_GetDepth
+mailbox.resource/MB_GetDMAChannels
+mailbox.resource/MB_GetEDIDBlock
+mailbox.resource/MB_GetFirmwareRevision
+mailbox.resource/MB_GetGPIOState
+mailbox.resource/MB_GetOverscan
+mailbox.resource/MB_GetPalette
+mailbox.resource/MB_GetPhysicalSize
+mailbox.resource/MB_GetPitch
+mailbox.resource/MB_GetPixelOrder
+mailbox.resource/MB_GetPowerState
+mailbox.resource/MB_GetTemperature
+mailbox.resource/MB_GetTemperatureMax
+mailbox.resource/MB_GetTurbo
+mailbox.resource/MB_GetVCMemory
+mailbox.resource/MB_GetVirtualOffset
+mailbox.resource/MB_GetVirtualSize
+mailbox.resource/MB_GetVoltage
+mailbox.resource/MB_GetVoltageMax
+mailbox.resource/MB_GetVoltageMin
+mailbox.resource/MB_LockMemory
+mailbox.resource/MB_RawCommand
+mailbox.resource/MB_ReleaseBuffer
+mailbox.resource/MB_ReleaseMemory
+mailbox.resource/MB_SetAlphaMode
+mailbox.resource/MB_SetClockRate
+mailbox.resource/MB_SetClockState
+mailbox.resource/MB_SetDepth
+mailbox.resource/MB_SetDisplayNum
+mailbox.resource/MB_SetGPIOState
+mailbox.resource/MB_SetOverscan
+mailbox.resource/MB_SetPalette
+mailbox.resource/MB_SetPhysicalSize
+mailbox.resource/MB_SetPixelOrder
+mailbox.resource/MB_SetPowerState
+mailbox.resource/MB_SetTurbo
+mailbox.resource/MB_SetVirtualOffset
+mailbox.resource/MB_SetVirtualSize
+mailbox.resource/MB_SetVoltage
+mailbox.resource/MB_StringCommand
+mailbox.resource/MB_UnlockMemory
+
+mailbox.resource/MB_AllocateBuffer           mailbox.resource/MB_AllocateBuffer
+
+   NAME
+	MB_AllocateBuffer -- allocate the framebuffer (V1.1)
+
+   SYNOPSIS
+	MB_AllocateBuffer( alignment, base, size )
+	                   d0         a0    a1
+
+	VOID MB_AllocateBuffer(ULONG, ULONG *, ULONG *);
+
+   FUNCTION
+	Allocates the framebuffer, using property tag ALLOCATE_BUFFER
+	(0x00040001). Must be called after Set(Physical|Virtual)Size()
+	and MB_SetDepth() have configured the mode; call
+	MB_ReleaseBuffer() when done with it.
+
+   INPUTS
+	alignment       The requested framebuffer base alignment in bytes
+	                (e.g. 64).
+	base            Receives the allocated framebuffer's base address, or
+	                NULL to discard.
+	size            Receives the allocated framebuffer's size in bytes, or
+	                NULL to discard.
+
+   RESULTS
+	On error, both *base and *size are set to -1.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG base, size;
+
+	    MB_AllocateBuffer(64, &base, &size);
+	    Printf("Framebuffer: %lx, %ld bytes\n", base, size);
+
+	    /* ... use the framebuffer ... */
+
+	    MB_ReleaseBuffer();
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_ReleaseBuffer(),
+	mailbox.resource/MB_SetPhysicalSize(),
+	mailbox.resource/MB_SetDepth(), mailbox.resource/MB_GetPitch(),
+	mailbox.resource/MB_SetDisplayNum()
+
+mailbox.resource/MB_AllocateMemory           mailbox.resource/MB_AllocateMemory
+
+   NAME
+	MB_AllocateMemory -- allocate GPU memory (V1.1)
+
+   SYNOPSIS
+	handle = MB_AllocateMemory( size, alignment, flags )
+	d0                          d0    d1         d2
+
+	ULONG MB_AllocateMemory(ULONG, ULONG, ULONG);
+
+   FUNCTION
+	Generic VideoCore GPU memory allocator, using property tag
+	ALLOCATE_MEMORY (0x0003000c). Useful for anything the ARM side
+	needs the GPU to see, e.g. uploading VC4 code for execution.
+
+   INPUTS
+	size            The size in bytes to allocate.
+	alignment       The required alignment in bytes (e.g. 4).
+	flags           A bitmask of MEM_FLAG_* values defined in
+	                resources/mailbox.h (e.g. MEM_FLAG_COHERENT |
+	                MEM_FLAG_DIRECT | MEM_FLAG_HINT_PERMALOCK for CPU-
+	                uncached, non-relocatable memory).
+
+   RESULTS
+	handle          An opaque handle to be passed to MB_LockMemory(), or
+	                -1 on a mailbox transport error.
+
+   EXAMPLES
+	Upload a small VC4 code fragment and get its bus address:
+
+	    #include <exec/types.h>
+	    #include <exec/execbase.h>
+	    #include <proto/exec.h>
+	    #include <proto/mailbox.h>
+	    #include <resources/mailbox.h>
+
+	    extern struct ExecBase *SysBase;
+	    APTR MailboxBase;
+
+	    ULONG handle, busAddr;
+	    UBYTE *vc4Code;
+
+	    MailboxBase = OpenResource(MAILBOXNAME);
+	    if (MailboxBase)
+	    {
+	        handle = MB_AllocateMemory(code_size, 4,
+	            MEM_FLAG_COHERENT | MEM_FLAG_DIRECT | MEM_FLAG_HINT_PERMALOCK);
+
+	        if (handle)
+	        {
+	            busAddr = MB_LockMemory(handle);
+	            vc4Code = (UBYTE *)(busAddr & 0x3fffffff);
+
+	            CopyMem(code, vc4Code, code_size);
+	            CacheClearE(vc4Code, code_size, CACRF_ClearD);
+
+	            /* ... hand busAddr to the GPU, e.g. via GET_EXECUTE_CODE ... */
+
+	            MB_UnlockMemory(handle);
+	            MB_ReleaseMemory(handle);
+	        }
+	    }
+
+	Resources are never closed with a Close call: once OpenResource()
+	succeeds, MailboxBase stays valid until the machine is reset.
+
+   NOTE
+	The MEM_FLAG_* values follow the official raspberrypi/firmware
+	wiki convention, but are not confirmed against any repo in this
+	workspace and have not yet been exercised on real hardware --
+	verify before relying on them.
+
+   SEE ALSO
+	mailbox.resource/MB_LockMemory(),
+	mailbox.resource/MB_UnlockMemory(),
+	mailbox.resource/MB_ReleaseMemory()
+
+mailbox.resource/MB_BlankScreen                 mailbox.resource/MB_BlankScreen
+
+   NAME
+	MB_BlankScreen -- blank or unblank the screen (V1.1)
+
+   SYNOPSIS
+	state = MB_BlankScreen( blank )
+	d0                      d0
+
+	ULONG MB_BlankScreen(ULONG);
+
+   FUNCTION
+	Blanks or unblanks the display, using property tag BLANK_SCREEN
+	(0x00040002).
+
+   INPUTS
+	blank           Non-zero to blank the screen, zero to unblank it.
+
+   RESULTS
+	state           Bit 0 of the state actually applied (1 = blanked), or
+	                -1 on a mailbox transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG state = MB_BlankScreen(TRUE);
+	    Printf("Screen blanked: %ld\n", state);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_AllocateBuffer(),
+	mailbox.resource/MB_SetDisplayNum()
+
+mailbox.resource/MB_GetAlphaMode               mailbox.resource/MB_GetAlphaMode
+
+   NAME
+	MB_GetAlphaMode -- read the framebuffer alpha channel mode (V1.1)
+
+   SYNOPSIS
+	mode = MB_GetAlphaMode()
+	d0
+
+	ULONG MB_GetAlphaMode(VOID);
+
+   FUNCTION
+	Reads the framebuffer's alpha channel mode, using property tag
+	GET_ALPHA_MODE (0x00040007).
+
+   RESULTS
+	mode            0 = enabled (0 is opaque), 1 = reversed (0 is
+	                transparent), 2 = ignored; or -1 on a mailbox
+	                transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG mode = MB_GetAlphaMode();
+	    Printf("Alpha mode: %ld\n", mode);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_SetAlphaMode(),
+	mailbox.resource/MB_SetDisplayNum()
+
+mailbox.resource/MB_GetARMMemory               mailbox.resource/MB_GetARMMemory
+
+   NAME
+	MB_GetARMMemory -- read the ARM-side memory base/size split (V1.1)
+
+   SYNOPSIS
+	MB_GetARMMemory( base, size )
+	                 a0    a1
+
+	VOID MB_GetARMMemory(ULONG *, ULONG *);
+
+   FUNCTION
+	Reads the base address and size of the memory reserved for the
+	ARM side, using property tag GET_ARM_MEMORY (0x00010005).
+
+   INPUTS
+	base            Receives the ARM memory base address, or NULL to
+	                discard.
+	size            Receives the ARM memory size in bytes, or NULL to
+	                discard.
+
+   RESULTS
+	On error, both *base and *size are set to -1.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG base, size;
+
+	    MB_GetARMMemory(&base, &size);
+	    Printf("ARM memory: %lx, %ld bytes\n", base, size);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetVCMemory()
+
+mailbox.resource/MB_GetBoardMACAddress   mailbox.resource/MB_GetBoardMACAddress
+
+   NAME
+	MB_GetBoardMACAddress -- read the board's MAC address (V1.1)
+
+   SYNOPSIS
+	MB_GetBoardMACAddress( hi, lo )
+	                       a0  a1
+
+	VOID MB_GetBoardMACAddress(ULONG *, ULONG *);
+
+   FUNCTION
+	Reads the board's 48-bit MAC address, using property tag
+	GET_BOARD_MACADDR (0x00010003).
+
+   INPUTS
+	hi              Receives the address's high 32 bits, or NULL to
+	                discard.
+	lo              Receives the address's low 16 bits (in the low half-
+	                word), or NULL to discard.
+
+   RESULTS
+	On error, both *hi and *lo are set to -1.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG hi, lo;
+
+	    MB_GetBoardMACAddress(&hi, &lo);
+	    Printf("MAC: %08lx%04lx\n", hi, lo >> 16);
+	}
+
+   NOTE
+	Unlike MB_GetBoardSerial() below, this tag's response is a
+	proper pair of 32-bit values and needs the full byte-swap,
+	applied internally -- confirmed on real PiStorm/Emu68 hardware.
+
+   SEE ALSO
+	mailbox.resource/MB_GetBoardSerial()
+
+mailbox.resource/MB_GetBoardModel             mailbox.resource/MB_GetBoardModel
+
+   NAME
+	MB_GetBoardModel -- read the board model code (V1.1)
+
+   SYNOPSIS
+	model = MB_GetBoardModel()
+	d0
+
+	ULONG MB_GetBoardModel(VOID);
+
+   FUNCTION
+	Reads the board model code, using property tag GET_BOARD_MODEL
+	(0x00010001).
+
+   RESULTS
+	model           The board model code, or -1 on a mailbox transport
+	                error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG model = MB_GetBoardModel();
+	    Printf("Board model: %ld\n", model);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetBoardRevision()
+
+mailbox.resource/MB_GetBoardRevision       mailbox.resource/MB_GetBoardRevision
+
+   NAME
+	MB_GetBoardRevision -- read the raw board revision code (V1.1)
+
+   SYNOPSIS
+	revision = MB_GetBoardRevision()
+	d0
+
+	ULONG MB_GetBoardRevision(VOID);
+
+   FUNCTION
+	Reads the raw 32-bit board revision code, using property tag
+	GET_BOARD_REVISION (0x00010002). The value packs the board's
+	overvoltage/OTP/warranty flags, memory size, manufacturer,
+	processor and revision fields; decoding it is the caller's
+	responsibility.
+
+   RESULTS
+	revision        The raw board revision code, or -1 on a mailbox
+	                transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG revision = MB_GetBoardRevision();
+	    Printf("Board revision: %08lx\n", revision);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetBoardModel(),
+	mailbox.resource/MB_GetFirmwareRevision()
+
+mailbox.resource/MB_GetBoardSerial           mailbox.resource/MB_GetBoardSerial
+
+   NAME
+	MB_GetBoardSerial -- read the board's 64-bit serial number (V1.1)
+
+   SYNOPSIS
+	MB_GetBoardSerial( hi, lo )
+	                   a0  a1
+
+	VOID MB_GetBoardSerial(ULONG *, ULONG *);
+
+   FUNCTION
+	Reads the board's 64-bit serial number, using property tag
+	GET_BOARD_SERIAL (0x00010004).
+
+   INPUTS
+	hi              Receives the serial number's high 32 bits, or NULL to
+	                discard.
+	lo              Receives the serial number's low 32 bits, or NULL to
+	                discard.
+
+   RESULTS
+	On error, both *hi and *lo are set to -1.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG hi, lo;
+
+	    MB_GetBoardSerial(&hi, &lo);
+	    Printf("Serial: %08lx%08lx\n", hi, lo);
+	}
+
+   NOTE
+	Unlike every other property tag in this resource, the firmware
+	hands this one back as a raw byte blob rather than two proper
+	32-bit values, so it must NOT be byte-swapped -- confirmed on
+	real hardware by working out the math from an actual wrong-
+	looking reading (with a swap applied, the expected RPi4 serial
+	"10000000c937f849" came out as "0000001049f837c9").
+
+   SEE ALSO
+	mailbox.resource/MB_GetBoardMACAddress()
+
+mailbox.resource/MB_GetClockRate               mailbox.resource/MB_GetClockRate
+
+   NAME
+	MB_GetClockRate -- read a clock's configured rate (V1.0)
+
+   SYNOPSIS
+	rate = MB_GetClockRate( clock_id )
+	d0                      d0
+
+	ULONG MB_GetClockRate(ULONG);
+
+   FUNCTION
+	Reads the configured rate of a VideoCore-managed clock, using
+	property tag GET_CLOCK_RATE (0x00030002).
+
+   INPUTS
+	clock_id        The clock to query, e.g. CLK_ARM_ID, CLK_CORE_ID,
+	                CLK_V3D_ID (see resources/mailbox.h for the full
+	                CLK_*_ID enum).
+
+   RESULTS
+	rate            The clock's configured rate in Hz, or -1 on a mailbox
+	                transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG rate = MB_GetClockRate(CLK_ARM_ID);
+	    Printf("ARM clock: %ld Hz\n", rate);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_SetClockRate(),
+	mailbox.resource/MB_GetClockRateMeasured(),
+	mailbox.resource/MB_GetClockRateMin(),
+	mailbox.resource/MB_GetClockRateMax()
+
+mailbox.resource/MB_GetClockRateMax         mailbox.resource/MB_GetClockRateMax
+
+   NAME
+	MB_GetClockRateMax -- read a clock's maximum allowed rate (V1.1)
+
+   SYNOPSIS
+	rate = MB_GetClockRateMax( clock_id )
+	d0                         d0
+
+	ULONG MB_GetClockRateMax(ULONG);
+
+   FUNCTION
+	Reads the maximum rate a clock is allowed to run at, using
+	property tag GET_CLOCKRATE_MAX (0x00030004). Reflects
+	config.txt's arm_freq/over_voltage settings, so it already
+	accounts for a user's overclock rather than a fixed stock value.
+
+   INPUTS
+	clock_id        The clock to query, see CLK_*_ID in
+	                resources/mailbox.h.
+
+   RESULTS
+	rate            The clock's maximum allowed rate in Hz, or -1 on a
+	                mailbox transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG rate = MB_GetClockRateMax(CLK_ARM_ID);
+	    Printf("ARM clock max: %ld Hz\n", rate);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetClockRate(),
+	mailbox.resource/MB_GetClockRateMin()
+
+mailbox.resource/MB_GetClockRateMeasured mailbox.resource/MB_GetClockRateMeasured
+
+   NAME
+	MB_GetClockRateMeasured -- read a clock's actual measured rate (V1.1)
+
+   SYNOPSIS
+	rate = MB_GetClockRateMeasured( clock_id )
+	d0                              d0
+
+	ULONG MB_GetClockRateMeasured(ULONG);
+
+   FUNCTION
+	Reads a clock's actual measured rate (as opposed to the
+	configured rate returned by MB_GetClockRate()), using property
+	tag GET_CLOCK_RATE_M (0x00030047). Used e.g. for the
+	framebuffer's real pixel clock.
+
+   INPUTS
+	clock_id        The clock to query, see CLK_*_ID in
+	                resources/mailbox.h.
+
+   RESULTS
+	rate            The clock's measured rate in Hz, or -1 on a mailbox
+	                transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG rate = MB_GetClockRateMeasured(CLK_ARM_ID);
+	    Printf("ARM clock measured: %ld Hz\n", rate);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetClockRate(),
+	mailbox.resource/MB_GetClockRateMin(),
+	mailbox.resource/MB_GetClockRateMax()
+
+mailbox.resource/MB_GetClockRateMin         mailbox.resource/MB_GetClockRateMin
+
+   NAME
+	MB_GetClockRateMin -- read a clock's minimum allowed rate (V1.1)
+
+   SYNOPSIS
+	rate = MB_GetClockRateMin( clock_id )
+	d0                         d0
+
+	ULONG MB_GetClockRateMin(ULONG);
+
+   FUNCTION
+	Reads the minimum rate a clock is allowed to run at, using
+	property tag GET_CLOCKRATE_MIN (0x00030007).
+
+   INPUTS
+	clock_id        The clock to query, see CLK_*_ID in
+	                resources/mailbox.h.
+
+   RESULTS
+	rate            The clock's minimum allowed rate in Hz, or -1 on a
+	                mailbox transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG rate = MB_GetClockRateMin(CLK_ARM_ID);
+	    Printf("ARM clock min: %ld Hz\n", rate);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetClockRate(),
+	mailbox.resource/MB_GetClockRateMax()
+
+mailbox.resource/MB_GetClockState             mailbox.resource/MB_GetClockState
+
+   NAME
+	MB_GetClockState -- read a clock's enabled/disabled state (V1.0)
+
+   SYNOPSIS
+	state = MB_GetClockState( clock_id )
+	d0                        d0
+
+	ULONG MB_GetClockState(ULONG);
+
+   FUNCTION
+	Reads whether a VideoCore-managed clock is currently enabled,
+	using property tag GET_CLOCK_STATE (0x00030001).
+
+   INPUTS
+	clock_id        The clock to query, see CLK_*_ID in
+	                resources/mailbox.h.
+
+   RESULTS
+	state           Bit 0 set if the clock exists and is on, or -1 on a
+	                mailbox transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG state = MB_GetClockState(CLK_ARM_ID);
+	    Printf("ARM clock state: %ld\n", state);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_SetClockState()
+
+mailbox.resource/MB_GetCommandLine           mailbox.resource/MB_GetCommandLine
+
+   NAME
+	MB_GetCommandLine -- read the firmware's boot command line (V1.1)
+
+   SYNOPSIS
+	length = MB_GetCommandLine( reply, reply_capacity )
+	d0                          a0     d0
+
+	ULONG MB_GetCommandLine(STRPTR, ULONG);
+
+   FUNCTION
+	Reads the ATAG/devicetree bootargs string the firmware handed to
+	the kernel, using property tag GET_COMMAND_LINE (0x00050001).
+
+   INPUTS
+	reply           A buffer to receive the string, or NULL to discard it.
+	reply_capacity  The size in bytes of the reply buffer. The reply is
+	                truncated to whichever is smaller: this value or 1024.
+
+   RESULTS
+	length          The actual response length reported by the firmware,
+	                or -1 on a mailbox transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    UBYTE cmdline[256];
+
+	    MB_GetCommandLine(cmdline, sizeof(cmdline));
+	    Printf("Boot args: %s\n", cmdline);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_StringCommand()
+
+mailbox.resource/MB_GetDepth                       mailbox.resource/MB_GetDepth
+
+   NAME
+	MB_GetDepth -- read the framebuffer colour depth (V1.1)
+
+   SYNOPSIS
+	depth = MB_GetDepth()
+	d0
+
+	ULONG MB_GetDepth(VOID);
+
+   FUNCTION
+	Reads the framebuffer's colour depth in bits per pixel, using
+	property tag GET_DEPTH (0x00040005).
+
+   RESULTS
+	depth           The colour depth in bits per pixel, or -1 on a mailbox
+	                transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG depth = MB_GetDepth();
+	    Printf("Depth: %ld bpp\n", depth);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_SetDepth(),
+	mailbox.resource/MB_SetDisplayNum()
+
+mailbox.resource/MB_GetDMAChannels           mailbox.resource/MB_GetDMAChannels
+
+   NAME
+	MB_GetDMAChannels -- read the DMA channels available to the ARM (V1.1)
+
+   SYNOPSIS
+	channels = MB_GetDMAChannels()
+	d0
+
+	ULONG MB_GetDMAChannels(VOID);
+
+   FUNCTION
+	Reads the bitmask of DMA channels available to the ARM side,
+	using property tag GET_DMA_CHANNELS (0x00060001).
+
+   RESULTS
+	channels        A bitmask of available DMA channels, or -1 on a
+	                mailbox transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG channels = MB_GetDMAChannels();
+	    Printf("DMA channels: %08lx\n", channels);
+	}
+
+   SEE ALSO
+
+mailbox.resource/MB_GetEDIDBlock               mailbox.resource/MB_GetEDIDBlock
+
+   NAME
+	MB_GetEDIDBlock -- read one 128-byte EDID block (V1.1)
+
+   SYNOPSIS
+	status = MB_GetEDIDBlock( block_number, edid_out )
+	d0                        d0            a0
+
+	ULONG MB_GetEDIDBlock(ULONG, UBYTE *);
+
+   FUNCTION
+	Reads one 128-byte EDID block from the currently connected
+	display, using property tag GET_EDID_BLOCK (0x00030020). Block 0
+	is the base EDID block; blocks 1 and up are CEA extension
+	blocks, whose count is announced in byte 126 of block 0.
+
+   INPUTS
+	block_number    The EDID block to read (0 = base block).
+	edid_out        A pointer to a 128-byte buffer to receive the block,
+	                or NULL to discard it.
+
+   RESULTS
+	status          0 on success, or -1 on a mailbox transport error or a
+	                firmware-reported failure.
+
+   EXAMPLES
+	Read the base EDID block plus any CEA extension blocks it
+	announces (adapted from Emu68DisplayDevice's Main.c, which built this
+	same request by hand on top of MB_RawCommand() before this dedicated
+	function existed):
+
+	    #include <exec/types.h>
+	    #include <proto/exec.h>
+	    #include <proto/mailbox.h>
+	    #include <resources/mailbox.h>
+
+	    #define EDID_BLOCK_SIZE  (128)
+	    #define EDID_BLOCK_COUNT (256)
+
+	    extern APTR MailboxBase;
+	    UBYTE edidData[EDID_BLOCK_SIZE * EDID_BLOCK_COUNT];
+
+	    ULONG ReadEDID(VOID)
+	    {
+	        UBYTE *buffer = edidData;
+
+	        if (MB_GetEDIDBlock(0, buffer) == 0)
+	        {
+	            UBYTE extensions = buffer[126];
+	            buffer += EDID_BLOCK_SIZE;
+
+	            if (extensions > 0 && extensions < EDID_BLOCK_COUNT)
+	            {
+	                ULONG block;
+
+	                for (block = 0; block < extensions; block++)
+	                {
+	                    if (MB_GetEDIDBlock(block + 1, buffer) != 0)
+	                        break;
+
+	                    buffer += EDID_BLOCK_SIZE;
+	                }
+	            }
+	        }
+
+	        return (ULONG)(buffer - edidData);
+	    }
+
+	Unlike the hand-built MB_RawCommand() buffer this replaces, the EDID
+	payload's own byte order never gets touched by MB_GetEDIDBlock() -- see
+	the NOTE above.
+
+   NOTE
+	The EDID payload itself is a raw byte blob and is copied
+	verbatim, without any byte-swapping -- only the tag's own status
+	word is a real 32-bit value and is swapped internally.
+
+   SEE ALSO
+
+mailbox.resource/MB_GetFirmwareRevision mailbox.resource/MB_GetFirmwareRevision
+
+   NAME
+	MB_GetFirmwareRevision -- read the VideoCore firmware revision (V1.1)
+
+   SYNOPSIS
+	revision = MB_GetFirmwareRevision()
+	d0
+
+	ULONG MB_GetFirmwareRevision(VOID);
+
+   FUNCTION
+	Reads the VideoCore firmware's revision number, using property
+	tag GET_FIRMWARE_REV (0x00000001).
+
+   RESULTS
+	revision        The firmware revision number, or -1 on a mailbox
+	                transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG revision = MB_GetFirmwareRevision();
+	    Printf("Firmware revision: %ld\n", revision);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetBoardRevision()
+
+mailbox.resource/MB_GetGPIOState               mailbox.resource/MB_GetGPIOState
+
+   NAME
+	MB_GetGPIOState -- read a GPIO/LED expander pin state (V1.0)
+
+   SYNOPSIS
+	state = MB_GetGPIOState( gpio )
+	d0                       d0
+
+	ULONG MB_GetGPIOState(ULONG);
+
+   FUNCTION
+	Reads the state of an expander GPIO/LED pin, using property tag
+	GET_LED_STATUS (0x00030041), documented under this name because
+	the same tag is what the mailbox.resource author uses for
+	general GPIO pin access.
+
+   INPUTS
+	gpio            The GPIO number, offset by 128 internally before being
+	                sent to the firmware (matches
+	                LED_PIN_STATUS/LED_PIN_POWER conventions in
+	                resources/mailbox.h).
+
+   RESULTS
+	state           The pin's state, or -1 on a mailbox transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG state = MB_GetGPIOState(LED_PIN_STATUS);
+	    Printf("Status LED: %ld\n", state);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_SetGPIOState()
+
+mailbox.resource/MB_GetOverscan                 mailbox.resource/MB_GetOverscan
+
+   NAME
+	MB_GetOverscan -- read the framebuffer overscan margins (V1.1)
+
+   SYNOPSIS
+	status = MB_GetOverscan( overscan )
+	d0                       a0
+
+	ULONG MB_GetOverscan(ULONG *);
+
+   FUNCTION
+	Reads the framebuffer's overscan margins, using property tag
+	GET_OVERSCAN (0x0004000a).
+
+   INPUTS
+	overscan        A pointer to an array of 4 ULONGs, filled with [top,
+	                bottom, left, right] on return.
+
+   RESULTS
+	status          0 on success, or -1 on a mailbox transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG overscan[4];
+
+	    MB_GetOverscan(overscan);
+	    Printf("Overscan: %ld %ld %ld %ld\n",
+	        overscan[0], overscan[1], overscan[2], overscan[3]);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_SetOverscan(),
+	mailbox.resource/MB_SetDisplayNum()
+
+mailbox.resource/MB_GetPalette                   mailbox.resource/MB_GetPalette
+
+   NAME
+	MB_GetPalette -- read the 256-entry RGBA palette (V1.1)
+
+   SYNOPSIS
+	status = MB_GetPalette( palette )
+	d0                      a0
+
+	ULONG MB_GetPalette(ULONG *);
+
+   FUNCTION
+	Reads the framebuffer's 256-entry RGBA palette, using property
+	tag GET_PALETTE (0x0004000b).
+
+   INPUTS
+	palette         A pointer to an array of 256 ULONGs, filled with the
+	                RGBA palette entries on return.
+
+   RESULTS
+	status          0 on success, or -1 on a mailbox transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG palette[256];
+
+	    MB_GetPalette(palette);
+	    Printf("Colour 1: %08lx\n", palette[1]);
+	}
+
+   NOTE
+	This function's buffer layout follows the officially documented
+	property-tag format, but it has not yet been exercised against
+	real hardware -- validate before relying on it.
+
+   SEE ALSO
+	mailbox.resource/MB_SetPalette(),
+	mailbox.resource/MB_SetDisplayNum()
+
+mailbox.resource/MB_GetPhysicalSize         mailbox.resource/MB_GetPhysicalSize
+
+   NAME
+	MB_GetPhysicalSize -- read the framebuffer physical (display) size (V1.1)
+
+   SYNOPSIS
+	MB_GetPhysicalSize( width, height )
+	                    a0     a1
+
+	VOID MB_GetPhysicalSize(ULONG *, ULONG *);
+
+   FUNCTION
+	Reads the framebuffer's physical (visible display) size in
+	pixels, using property tag GET_PHYSICAL_SIZE (0x00040003).
+
+   INPUTS
+	width           Receives the width in pixels, or NULL to discard.
+	height          Receives the height in pixels, or NULL to discard.
+
+   RESULTS
+	On error, both *width and *height are set to -1.
+
+   EXAMPLES
+	Print both physical display sizes of a Raspberry Pi 4B, by
+	selecting each display first with MB_SetDisplayNum() (BCM2711-only,
+	see its own NOTE):
+
+	    #include <exec/types.h>
+	    #include <proto/exec.h>
+	    #include <proto/dos.h>
+	    #include <proto/mailbox.h>
+	    #include <resources/mailbox.h>
+
+	    extern APTR MailboxBase;
+
+	    VOID PrintBothDisplaySizes(VOID)
+	    {
+	        ULONG display, width, height;
+
+	        for (display = 0; display < 2; display++)
+	        {
+	            MB_SetDisplayNum(display);
+	            MB_GetPhysicalSize(&width, &height);
+
+	            Printf("HDMI%ld: %ld x %ld
+	", display, width, height);
+	        }
+	    }
+
+   SEE ALSO
+	mailbox.resource/MB_SetPhysicalSize(),
+	mailbox.resource/MB_GetVirtualSize(),
+	mailbox.resource/MB_SetDisplayNum()
+
+mailbox.resource/MB_GetPitch                       mailbox.resource/MB_GetPitch
+
+   NAME
+	MB_GetPitch -- read the framebuffer's bytes-per-line pitch (V1.1)
+
+   SYNOPSIS
+	pitch = MB_GetPitch()
+	d0
+
+	ULONG MB_GetPitch(VOID);
+
+   FUNCTION
+	Reads the framebuffer's bytes-per-line pitch, using property tag
+	GET_PITCH (0x00040008). Only meaningful after
+	MB_AllocateBuffer() has been called.
+
+   RESULTS
+	pitch           The pitch in bytes per line, or -1 on a mailbox
+	                transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG pitch = MB_GetPitch();
+	    Printf("Pitch: %ld bytes/line\n", pitch);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_AllocateBuffer(),
+	mailbox.resource/MB_SetDisplayNum()
+
+mailbox.resource/MB_GetPixelOrder             mailbox.resource/MB_GetPixelOrder
+
+   NAME
+	MB_GetPixelOrder -- read the framebuffer pixel colour order (V1.1)
+
+   SYNOPSIS
+	order = MB_GetPixelOrder()
+	d0
+
+	ULONG MB_GetPixelOrder(VOID);
+
+   FUNCTION
+	Reads the framebuffer's pixel colour order, using property tag
+	GET_PIXEL_ORDER (0x00040006).
+
+   RESULTS
+	order           0 for BGR, 1 for RGB, or -1 on a mailbox transport
+	                error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG order = MB_GetPixelOrder();
+	    Printf("Pixel order: %ld\n", order);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_SetPixelOrder(),
+	mailbox.resource/MB_SetDisplayNum()
+
+mailbox.resource/MB_GetPowerState             mailbox.resource/MB_GetPowerState
+
+   NAME
+	MB_GetPowerState -- read a device's power on/off state (V1.0)
+
+   SYNOPSIS
+	state = MB_GetPowerState( id )
+	d0                        d0
+
+	ULONG MB_GetPowerState(ULONG);
+
+   FUNCTION
+	Reads whether a VideoCore-managed device domain is powered on,
+	using property tag GET_POWER_STATE (0x00020001).
+
+   INPUTS
+	id              The device to query, see POWER_* in
+	                resources/mailbox.h (e.g. POWER_SDCARD, POWER_USBHCD).
+
+   RESULTS
+	state           Bit 0 set if the device is on, or -1 on a mailbox
+	                transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG state = MB_GetPowerState(POWER_SDCARD);
+	    Printf("SD card power: %ld\n", state);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_SetPowerState()
+
+mailbox.resource/MB_GetTemperature           mailbox.resource/MB_GetTemperature
+
+   NAME
+	MB_GetTemperature -- read the SoC temperature (V1.1)
+
+   SYNOPSIS
+	millidegrees = MB_GetTemperature( temp_id )
+	d0                                d0
+
+	ULONG MB_GetTemperature(ULONG);
+
+   FUNCTION
+	Reads the current SoC temperature, using property tag
+	GET_TEMPERATURE (0x00030006).
+
+   INPUTS
+	temp_id         Reserved by the firmware, must be 0.
+
+   RESULTS
+	millidegrees    The temperature in thousandths of a degree Celsius, or
+	                -1 on a mailbox transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG milli = MB_GetTemperature(0);
+	    Printf("Temperature: %ld.%03ld C\n", milli / 1000, milli % 1000);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetTemperatureMax()
+
+mailbox.resource/MB_GetTemperatureMax     mailbox.resource/MB_GetTemperatureMax
+
+   NAME
+	MB_GetTemperatureMax -- read the SoC's maximum safe temperature (V1.1)
+
+   SYNOPSIS
+	millidegrees = MB_GetTemperatureMax( temp_id )
+	d0                                   d0
+
+	ULONG MB_GetTemperatureMax(ULONG);
+
+   FUNCTION
+	Reads the SoC's maximum safe temperature (the throttling
+	threshold), using property tag GET_TEMPERATURE_MAX (0x0003000a).
+
+   INPUTS
+	temp_id         Reserved by the firmware, must be 0.
+
+   RESULTS
+	millidegrees    The maximum temperature in thousandths of a degree
+	                Celsius, or -1 on a mailbox transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG milli = MB_GetTemperatureMax(0);
+	    Printf("Max temperature: %ld.%03ld C\n", milli / 1000, milli % 1000);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetTemperature()
+
+mailbox.resource/MB_GetTurbo                       mailbox.resource/MB_GetTurbo
+
+   NAME
+	MB_GetTurbo -- read the turbo/overclock level (V1.1)
+
+   SYNOPSIS
+	level = MB_GetTurbo( id )
+	d0                   d0
+
+	ULONG MB_GetTurbo(ULONG);
+
+   FUNCTION
+	Reads the current turbo/overclock level, using property tag
+	GET_TURBO (0x00030009).
+
+   INPUTS
+	id              Reserved by the firmware, must be 0.
+
+   RESULTS
+	level           The current turbo level (0 = off), or -1 on a mailbox
+	                transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG level = MB_GetTurbo(0);
+	    Printf("Turbo level: %ld\n", level);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_SetTurbo()
+
+mailbox.resource/MB_GetVCMemory                 mailbox.resource/MB_GetVCMemory
+
+   NAME
+	MB_GetVCMemory -- read the VideoCore-side memory base/size split (V1.1)
+
+   SYNOPSIS
+	MB_GetVCMemory( base, size )
+	                a0    a1
+
+	VOID MB_GetVCMemory(ULONG *, ULONG *);
+
+   FUNCTION
+	Reads the base address and size of the memory reserved for the
+	VideoCore GPU, using property tag GET_VC_MEMORY (0x00010006).
+
+   INPUTS
+	base            Receives the VideoCore memory base address, or NULL to
+	                discard.
+	size            Receives the VideoCore memory size in bytes, or NULL
+	                to discard.
+
+   RESULTS
+	On error, both *base and *size are set to -1.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG base, size;
+
+	    MB_GetVCMemory(&base, &size);
+	    Printf("VC memory: %lx, %ld bytes\n", base, size);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetARMMemory()
+
+mailbox.resource/MB_GetVirtualOffset       mailbox.resource/MB_GetVirtualOffset
+
+   NAME
+	MB_GetVirtualOffset -- read the framebuffer pan/scroll offset (V1.1)
+
+   SYNOPSIS
+	MB_GetVirtualOffset( x, y )
+	                     a0 a1
+
+	VOID MB_GetVirtualOffset(ULONG *, ULONG *);
+
+   FUNCTION
+	Reads the framebuffer's virtual pan/scroll offset, using
+	property tag GET_VIRTUAL_OFFSET (0x00040009).
+
+   INPUTS
+	x               Receives the horizontal offset in pixels, or NULL to
+	                discard.
+	y               Receives the vertical offset in pixels, or NULL to
+	                discard.
+
+   RESULTS
+	On error, both *x and *y are set to -1.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG x, y;
+
+	    MB_GetVirtualOffset(&x, &y);
+	    Printf("Pan offset: %ld, %ld\n", x, y);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_SetVirtualOffset(),
+	mailbox.resource/MB_SetDisplayNum()
+
+mailbox.resource/MB_GetVirtualSize           mailbox.resource/MB_GetVirtualSize
+
+   NAME
+	MB_GetVirtualSize -- read the framebuffer virtual (buffer) size (V1.1)
+
+   SYNOPSIS
+	MB_GetVirtualSize( width, height )
+	                   a0     a1
+
+	VOID MB_GetVirtualSize(ULONG *, ULONG *);
+
+   FUNCTION
+	Reads the framebuffer's virtual (buffer) size in pixels, using
+	property tag GET_VIRTUAL_SIZE (0x00040004).
+
+   INPUTS
+	width           Receives the width in pixels, or NULL to discard.
+	height          Receives the height in pixels, or NULL to discard.
+
+   RESULTS
+	On error, both *width and *height are set to -1.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG width, height;
+
+	    MB_GetVirtualSize(&width, &height);
+	    Printf("Virtual size: %ld x %ld\n", width, height);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_SetVirtualSize(),
+	mailbox.resource/MB_GetPhysicalSize(),
+	mailbox.resource/MB_SetDisplayNum()
+
+mailbox.resource/MB_GetVoltage                   mailbox.resource/MB_GetVoltage
+
+   NAME
+	MB_GetVoltage -- read a rail's voltage offset (V1.1)
+
+   SYNOPSIS
+	offset = MB_GetVoltage( voltage_id )
+	d0                      d0
+
+	ULONG MB_GetVoltage(ULONG);
+
+   FUNCTION
+	Reads a power rail's voltage offset, using property tag
+	GET_VOLTAGE (0x00030003).
+
+   INPUTS
+	voltage_id      The rail to query: VOLTAGE_ID_RESERVED (0),
+	                VOLTAGE_ID_CORE (1), VOLTAGE_ID_SDRAM_C (2),
+	                VOLTAGE_ID_SDRAM_P (3) or VOLTAGE_ID_SDRAM_I (4) --
+	                see resources/mailbox.h.
+
+   RESULTS
+	offset          A signed offset from 1.2V in units of 25mV, or -1 on a
+	                mailbox transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG offset = MB_GetVoltage(VOLTAGE_ID_CORE);
+	    Printf("Core voltage offset: %ld\n", offset);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_SetVoltage(),
+	mailbox.resource/MB_GetVoltageMin(),
+	mailbox.resource/MB_GetVoltageMax()
+
+mailbox.resource/MB_GetVoltageMax             mailbox.resource/MB_GetVoltageMax
+
+   NAME
+	MB_GetVoltageMax -- read a rail's maximum allowed voltage offset (V1.1)
+
+   SYNOPSIS
+	offset = MB_GetVoltageMax( voltage_id )
+	d0                         d0
+
+	ULONG MB_GetVoltageMax(ULONG);
+
+   FUNCTION
+	Reads a power rail's maximum allowed voltage offset, using
+	property tag GET_VOLTAGE_MAX (0x00030005).
+
+   INPUTS
+	voltage_id      The rail to query, see VOLTAGE_ID_* in
+	                resources/mailbox.h.
+
+   RESULTS
+	offset          The maximum allowed offset, or -1 on a mailbox
+	                transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG offset = MB_GetVoltageMax(VOLTAGE_ID_CORE);
+	    Printf("Core voltage max offset: %ld\n", offset);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetVoltage(),
+	mailbox.resource/MB_GetVoltageMin()
+
+mailbox.resource/MB_GetVoltageMin             mailbox.resource/MB_GetVoltageMin
+
+   NAME
+	MB_GetVoltageMin -- read a rail's minimum allowed voltage offset (V1.1)
+
+   SYNOPSIS
+	offset = MB_GetVoltageMin( voltage_id )
+	d0                         d0
+
+	ULONG MB_GetVoltageMin(ULONG);
+
+   FUNCTION
+	Reads a power rail's minimum allowed voltage offset, using
+	property tag GET_VOLTAGE_MIN (0x00030008).
+
+   INPUTS
+	voltage_id      The rail to query, see VOLTAGE_ID_* in
+	                resources/mailbox.h.
+
+   RESULTS
+	offset          The minimum allowed offset, or -1 on a mailbox
+	                transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG offset = MB_GetVoltageMin(VOLTAGE_ID_CORE);
+	    Printf("Core voltage min offset: %ld\n", offset);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetVoltage(),
+	mailbox.resource/MB_GetVoltageMax()
+
+mailbox.resource/MB_LockMemory                   mailbox.resource/MB_LockMemory
+
+   NAME
+	MB_LockMemory -- lock a GPU memory handle (V1.1)
+
+   SYNOPSIS
+	busAddress = MB_LockMemory( handle )
+	d0                          d0
+
+	ULONG MB_LockMemory(ULONG);
+
+   FUNCTION
+	Locks a GPU memory block allocated by MB_AllocateMemory() and
+	returns its VPU-side bus address, using property tag LOCK_MEMORY
+	(0x0003000d). Mask the result with 0x3fffffff to obtain the CPU-
+	side physical address.
+
+   INPUTS
+	handle          A handle returned by MB_AllocateMemory().
+
+   RESULTS
+	busAddress      The block's VPU-side bus address, or -1 on a mailbox
+	                transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG handle = MB_AllocateMemory(4096, 4, MEM_FLAG_COHERENT);
+	    ULONG busAddr = MB_LockMemory(handle);
+
+	    Printf("Bus address: %lx\n", busAddr);
+
+	    MB_UnlockMemory(handle);
+	    MB_ReleaseMemory(handle);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_AllocateMemory(),
+	mailbox.resource/MB_UnlockMemory()
+
+mailbox.resource/MB_RawCommand                   mailbox.resource/MB_RawCommand
+
+   NAME
+	MB_RawCommand -- send a raw VideoCore property-tag buffer (V1.0)
+
+   SYNOPSIS
+	MB_RawCommand( command )
+	               a0
+
+	VOID MB_RawCommand(ULONG *);
+
+   FUNCTION
+	MB_RawCommand sends a caller-built VideoCore mailbox property-
+	tag buffer as-is, over the property channel (mailbox channel 8),
+	and waits for the firmware's reply. It handles the semaphore
+	locking, endianness byte-swapping and cache DMA flushing
+	internally, then swaps the buffer contents back to big-endian
+	before returning, so the caller's buffer is portable m68k data
+	on both sides of the call.
+
+	This is the escape hatch for any property tag that does not
+	(yet) have a dedicated function in this resource -- see
+	implementation.md in the resource's own repository for the full
+	list of known tags.
+
+   INPUTS
+	command         A pointer to a property-tag buffer, big-endian, built
+	                exactly as documented on the raspberrypi/firmware
+	                wiki's Mailbox-property-interface page. command[0]
+	                must hold the buffer's total size in bytes. The buffer
+	                may not exceed 480 longwords.
+
+   RESULTS
+	None. On success, the buffer is overwritten in place with the
+	firmware's reply (already byte-swapped back to big-endian). On
+	mailbox failure or timeout, command[0] is set to 0xffffffff.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG command[7] = { 7 * 4, 0, 0x00000001, 4, 0, 0, 0 };
+
+	    MB_RawCommand(command);
+	    Printf("Firmware revision: %ld\n", command[5]);
+	}
+
+   NOTE
+	This call is not reentrant with itself or with any other
+	function of this resource while it is running: it is serialised
+	internally by the resource's own semaphore, so concurrent
+	callers simply queue up.
+
+   SEE ALSO
+	mailbox.resource/MB_StringCommand()
+
+mailbox.resource/MB_ReleaseBuffer             mailbox.resource/MB_ReleaseBuffer
+
+   NAME
+	MB_ReleaseBuffer -- release the framebuffer (V1.1)
+
+   SYNOPSIS
+	MB_ReleaseBuffer()
+	
+
+	VOID MB_ReleaseBuffer(VOID);
+
+   FUNCTION
+	Releases the framebuffer previously allocated by
+	MB_AllocateBuffer(), using property tag RELEASE_BUFFER
+	(0x00048001).
+
+   RESULTS
+	None.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    /* ... MB_AllocateBuffer(), use the framebuffer ... */
+
+	    MB_ReleaseBuffer();
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_AllocateBuffer(),
+	mailbox.resource/MB_SetDisplayNum()
+
+mailbox.resource/MB_ReleaseMemory             mailbox.resource/MB_ReleaseMemory
+
+   NAME
+	MB_ReleaseMemory -- release a GPU memory handle (V1.1)
+
+   SYNOPSIS
+	status = MB_ReleaseMemory( handle )
+	d0                         d0
+
+	ULONG MB_ReleaseMemory(ULONG);
+
+   FUNCTION
+	Releases a GPU memory block allocated by MB_AllocateMemory(),
+	using property tag RELEASE_MEMORY (0x0003000f).
+
+   INPUTS
+	handle          A handle returned by MB_AllocateMemory().
+
+   RESULTS
+	status          0 on success, or -1 on a mailbox transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG handle = MB_AllocateMemory(4096, 4, MEM_FLAG_COHERENT);
+
+	    /* ... use the block via MB_LockMemory() ... */
+
+	    MB_ReleaseMemory(handle);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_AllocateMemory(),
+	mailbox.resource/MB_UnlockMemory()
+
+mailbox.resource/MB_SetAlphaMode               mailbox.resource/MB_SetAlphaMode
+
+   NAME
+	MB_SetAlphaMode -- set the framebuffer alpha channel mode (V1.1)
+
+   SYNOPSIS
+	mode = MB_SetAlphaMode( mode )
+	d0                      d0
+
+	ULONG MB_SetAlphaMode(ULONG);
+
+   FUNCTION
+	Sets the framebuffer's alpha channel mode, using property tag
+	SET_ALPHA_MODE (0x00048007).
+
+   INPUTS
+	mode            0 = enabled, 1 = reversed, 2 = ignored -- see
+	                MB_GetAlphaMode().
+
+   RESULTS
+	mode            The mode actually applied, or -1 on a mailbox
+	                transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG mode = MB_SetAlphaMode(2);
+	    Printf("Alpha mode: %ld\n", mode);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetAlphaMode(),
+	mailbox.resource/MB_SetDisplayNum()
+
+mailbox.resource/MB_SetClockRate               mailbox.resource/MB_SetClockRate
+
+   NAME
+	MB_SetClockRate -- set a clock's rate (V1.0)
+
+   SYNOPSIS
+	rate = MB_SetClockRate( clock_id, speed )
+	d0                      d0        d1
+
+	ULONG MB_SetClockRate(ULONG, ULONG);
+
+   FUNCTION
+	Sets the rate of a VideoCore-managed clock, using property tag
+	SET_CLOCK_RATE (0x00038002).
+
+   INPUTS
+	clock_id        The clock to set, see CLK_*_ID in resources/mailbox.h.
+	speed           The desired rate in Hz.
+
+   RESULTS
+	rate            The rate actually applied by the firmware, or -1 on a
+	                mailbox transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG rate = MB_SetClockRate(CLK_ARM_ID, 600000000);
+	    Printf("ARM clock set to: %ld Hz\n", rate);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetClockRate()
+
+mailbox.resource/MB_SetClockState             mailbox.resource/MB_SetClockState
+
+   NAME
+	MB_SetClockState -- enable or disable a clock (V1.0)
+
+   SYNOPSIS
+	state = MB_SetClockState( clock_id, state )
+	d0                        d0        d1
+
+	ULONG MB_SetClockState(ULONG, ULONG);
+
+   FUNCTION
+	Enables or disables a VideoCore-managed clock, using property
+	tag SET_CLOCK_STATE (0x00038001).
+
+   INPUTS
+	clock_id        The clock to set, see CLK_*_ID in resources/mailbox.h.
+	state           Bit 0: 1 to turn the clock on, 0 to turn it off.
+
+   RESULTS
+	state           The state actually applied, or -1 on a mailbox
+	                transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG state = MB_SetClockState(CLK_UART_ID, 1);
+	    Printf("UART clock state: %ld\n", state);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetClockState()
+
+mailbox.resource/MB_SetDepth                       mailbox.resource/MB_SetDepth
+
+   NAME
+	MB_SetDepth -- set the framebuffer colour depth (V1.1)
+
+   SYNOPSIS
+	depth = MB_SetDepth( depth )
+	d0                   d0
+
+	ULONG MB_SetDepth(ULONG);
+
+   FUNCTION
+	Sets the framebuffer's colour depth in bits per pixel, using
+	property tag SET_DEPTH (0x00048005). Must be called before
+	MB_AllocateBuffer().
+
+   INPUTS
+	depth           The desired colour depth in bits per pixel (e.g. 8,
+	                16, 24, 32).
+
+   RESULTS
+	depth           The depth actually applied, or -1 on a mailbox
+	                transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG depth = MB_SetDepth(16);
+	    Printf("Depth set to: %ld bpp\n", depth);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetDepth(),
+	mailbox.resource/MB_AllocateBuffer(),
+	mailbox.resource/MB_SetDisplayNum()
+
+mailbox.resource/MB_SetDisplayNum             mailbox.resource/MB_SetDisplayNum
+
+   NAME
+	MB_SetDisplayNum -- select the target display for framebuffer tags (V1.1)
+
+   SYNOPSIS
+	display_num = MB_SetDisplayNum( display_num )
+	d0                              d0
+
+	ULONG MB_SetDisplayNum(ULONG);
+
+   FUNCTION
+	Selects which physical display (0=HDMI0, 1=HDMI1) the
+	framebuffer property tags that follow --
+	MB_GetPhysicalSize/MB_SetPhysicalSize,
+	MB_GetVirtualSize/MB_SetVirtualSize, MB_GetDepth/MB_SetDepth,
+	MB_GetPitch, MB_AllocateBuffer, MB_ReleaseBuffer, MB_BlankScreen
+	and friends -- apply to, using property tag SET_DISPLAY_NUM
+	(0x00048013). BCM2711-only (Raspberry Pi 4 family); has no
+	effect on earlier SoCs, which only ever had one HDMI output.
+
+   INPUTS
+	display_num     0 for HDMI0, 1 for HDMI1.
+
+   RESULTS
+	display_num     The display number actually selected, or -1 on a
+	                mailbox transport error.
+
+   EXAMPLES
+	Print both physical display sizes of a Raspberry Pi 4B,
+	checking that each display selection succeeds before querying it
+	(see MB_GetPhysicalSize() for the full loop):
+
+	    #include <exec/types.h>
+	    #include <proto/exec.h>
+	    #include <proto/dos.h>
+	    #include <proto/mailbox.h>
+	    #include <resources/mailbox.h>
+
+	    extern APTR MailboxBase;
+
+	    ULONG display = 1; /* HDMI1 */
+
+	    if (MB_SetDisplayNum(display) == display)
+	    {
+	        ULONG width, height;
+
+	        MB_GetPhysicalSize(&width, &height);
+	        Printf("HDMI%ld: %ld x %ld
+	", display, width, height);
+	    }
+	    else
+	    {
+	        Printf("HDMI%ld: not available
+	", display);
+	    }
+
+   NOTE
+	This tag is not documented in Michal Schulz's canonical
+	resources/mailbox.h; its existence and behaviour come from
+	third-party bare-metal reports and have not yet been verified on
+	this project's own hardware.
+
+   SEE ALSO
+	mailbox.resource/MB_GetPhysicalSize(),
+	mailbox.resource/MB_AllocateBuffer()
+
+mailbox.resource/MB_SetGPIOState               mailbox.resource/MB_SetGPIOState
+
+   NAME
+	MB_SetGPIOState -- set a GPIO/LED expander pin state (V1.0)
+
+   SYNOPSIS
+	state = MB_SetGPIOState( gpio, state )
+	d0                       d0    d1
+
+	ULONG MB_SetGPIOState(ULONG, ULONG);
+
+   FUNCTION
+	Sets the state of an expander GPIO/LED pin, using property tag
+	SET_LED_STATUS (0x00038041).
+
+   INPUTS
+	gpio            The GPIO number, offset by 128 internally, see
+	                MB_GetGPIOState().
+	state           The pin state to set.
+
+   RESULTS
+	state           The state actually applied, or -1 on a mailbox
+	                transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG state = MB_SetGPIOState(LED_PIN_STATUS, 1);
+	    Printf("Status LED set to: %ld\n", state);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetGPIOState()
+
+mailbox.resource/MB_SetOverscan                 mailbox.resource/MB_SetOverscan
+
+   NAME
+	MB_SetOverscan -- set the framebuffer overscan margins (V1.1)
+
+   SYNOPSIS
+	status = MB_SetOverscan( overscan )
+	d0                       a0
+
+	ULONG MB_SetOverscan(ULONG *);
+
+   FUNCTION
+	Sets the framebuffer's overscan margins, using property tag
+	SET_OVERSCAN (0x0004800a).
+
+   INPUTS
+	overscan        A pointer to an array of 4 ULONGs holding [top,
+	                bottom, left, right] on entry; overwritten with the
+	                actually applied values on return.
+
+   RESULTS
+	status          0 on success, or -1 on a mailbox transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG overscan[4] = { 0, 0, 0, 0 };
+
+	    MB_SetOverscan(overscan);
+	    Printf("Overscan applied: %ld %ld %ld %ld\n",
+	        overscan[0], overscan[1], overscan[2], overscan[3]);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetOverscan(),
+	mailbox.resource/MB_SetDisplayNum()
+
+mailbox.resource/MB_SetPalette                   mailbox.resource/MB_SetPalette
+
+   NAME
+	MB_SetPalette -- set a range of the 256-entry RGBA palette (V1.1)
+
+   SYNOPSIS
+	status = MB_SetPalette( offset, count, colors )
+	d0                      d0      d1     a0
+
+	ULONG MB_SetPalette(ULONG, ULONG, ULONG *);
+
+   FUNCTION
+	Sets 'count' consecutive palette entries starting at 'offset',
+	using property tag SET_PALETTE (0x0004800b).
+
+   INPUTS
+	offset          The index of the first palette entry to set.
+	count           The number of consecutive entries to set; must not
+	                exceed 256.
+	colors          A pointer to an array of 'count' RGBA ULONGs.
+
+   RESULTS
+	status          0 on success, 1 if the firmware reported an invalid
+	                palette index, or -1 on a mailbox transport error or
+	                an oversized count.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG red = 0xff0000ff;
+
+	    ULONG status = MB_SetPalette(1, 1, &red);
+	    Printf("MB_SetPalette status: %ld\n", status);
+	}
+
+   NOTE
+	This function's buffer layout follows the officially documented
+	property-tag format, but it has not yet been exercised against
+	real hardware -- validate before relying on it.
+
+   SEE ALSO
+	mailbox.resource/MB_GetPalette(),
+	mailbox.resource/MB_SetDisplayNum()
+
+mailbox.resource/MB_SetPhysicalSize         mailbox.resource/MB_SetPhysicalSize
+
+   NAME
+	MB_SetPhysicalSize -- set the framebuffer physical (display) size (V1.1)
+
+   SYNOPSIS
+	MB_SetPhysicalSize( width, height, actual_width, actual_height )
+	                    d0     d1      a0            a1
+
+	VOID MB_SetPhysicalSize(ULONG, ULONG, ULONG *, ULONG *);
+
+   FUNCTION
+	Sets the framebuffer's physical (visible display) size in
+	pixels, using property tag SET_PHYSICAL_SIZE (0x00048003).
+
+   INPUTS
+	width           The desired width in pixels.
+	height          The desired height in pixels.
+	actual_width    Receives the width actually applied, or NULL to
+	                discard.
+	actual_height   Receives the height actually applied, or NULL to
+	                discard.
+
+   RESULTS
+	The firmware may adjust the requested size (e.g. alignment or
+	mode constraints); on error, both *actual_width and
+	*actual_height are set to -1.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG width, height;
+
+	    MB_SetPhysicalSize(1920, 1080, &width, &height);
+	    Printf("Physical size applied: %ld x %ld\n", width, height);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetPhysicalSize(),
+	mailbox.resource/MB_SetVirtualSize(),
+	mailbox.resource/MB_SetDisplayNum()
+
+mailbox.resource/MB_SetPixelOrder             mailbox.resource/MB_SetPixelOrder
+
+   NAME
+	MB_SetPixelOrder -- set the framebuffer pixel colour order (V1.1)
+
+   SYNOPSIS
+	order = MB_SetPixelOrder( order )
+	d0                        d0
+
+	ULONG MB_SetPixelOrder(ULONG);
+
+   FUNCTION
+	Sets the framebuffer's pixel colour order, using property tag
+	SET_PIXEL_ORDER (0x00048006).
+
+   INPUTS
+	order           0 for BGR, 1 for RGB.
+
+   RESULTS
+	order           The order actually applied, or -1 on a mailbox
+	                transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG order = MB_SetPixelOrder(1);
+	    Printf("Pixel order set to: %ld\n", order);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetPixelOrder(),
+	mailbox.resource/MB_SetDisplayNum()
+
+mailbox.resource/MB_SetPowerState             mailbox.resource/MB_SetPowerState
+
+   NAME
+	MB_SetPowerState -- power a device domain on or off (V1.0)
+
+   SYNOPSIS
+	state = MB_SetPowerState( id, state )
+	d0                        d0  d1
+
+	ULONG MB_SetPowerState(ULONG, ULONG);
+
+   FUNCTION
+	Powers a VideoCore-managed device domain on or off, using
+	property tag SET_POWER_STATE (0x00028001).
+
+   INPUTS
+	id              The device to set, see POWER_* in resources/mailbox.h.
+	state           Bit 0: 1 to power on, 0 to power off.
+
+   RESULTS
+	state           The state actually applied, or -1 on a mailbox
+	                transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG state = MB_SetPowerState(POWER_USBHCD, 1);
+	    Printf("USB power set to: %ld\n", state);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetPowerState()
+
+mailbox.resource/MB_SetTurbo                       mailbox.resource/MB_SetTurbo
+
+   NAME
+	MB_SetTurbo -- set the turbo/overclock level (V1.1)
+
+   SYNOPSIS
+	level = MB_SetTurbo( id, level )
+	d0                   d0  d1
+
+	ULONG MB_SetTurbo(ULONG, ULONG);
+
+   FUNCTION
+	Sets the turbo/overclock level, using property tag SET_TURBO
+	(0x00038009).
+
+   INPUTS
+	id              Reserved by the firmware, must be 0.
+	level           The turbo level to set (0 = off).
+
+   RESULTS
+	level           The level actually applied, or -1 on a mailbox
+	                transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG level = MB_SetTurbo(0, 1);
+	    Printf("Turbo level set to: %ld\n", level);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetTurbo()
+
+mailbox.resource/MB_SetVirtualOffset       mailbox.resource/MB_SetVirtualOffset
+
+   NAME
+	MB_SetVirtualOffset -- set the framebuffer pan/scroll offset (V1.1)
+
+   SYNOPSIS
+	MB_SetVirtualOffset( x, y, actual_x, actual_y )
+	                     d0 d1 a0        a1
+
+	VOID MB_SetVirtualOffset(ULONG, ULONG, ULONG *, ULONG *);
+
+   FUNCTION
+	Sets the framebuffer's virtual pan/scroll offset, using property
+	tag SET_VIRTUAL_OFFSET (0x00048009).
+
+   INPUTS
+	x               The desired horizontal offset in pixels.
+	y               The desired vertical offset in pixels.
+	actual_x        Receives the offset actually applied, or NULL to
+	                discard.
+	actual_y        Receives the offset actually applied, or NULL to
+	                discard.
+
+   RESULTS
+	On error, both *actual_x and *actual_y are set to -1.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG x, y;
+
+	    MB_SetVirtualOffset(0, 0, &x, &y);
+	    Printf("Pan offset applied: %ld, %ld\n", x, y);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetVirtualOffset(),
+	mailbox.resource/MB_SetDisplayNum()
+
+mailbox.resource/MB_SetVirtualSize           mailbox.resource/MB_SetVirtualSize
+
+   NAME
+	MB_SetVirtualSize -- set the framebuffer virtual (buffer) size (V1.1)
+
+   SYNOPSIS
+	MB_SetVirtualSize( width, height, actual_width, actual_height )
+	                   d0     d1      a0            a1
+
+	VOID MB_SetVirtualSize(ULONG, ULONG, ULONG *, ULONG *);
+
+   FUNCTION
+	Sets the framebuffer's virtual (buffer) size in pixels, using
+	property tag SET_VIRTUAL_SIZE (0x00048004).
+
+   INPUTS
+	width           The desired width in pixels.
+	height          The desired height in pixels.
+	actual_width    Receives the width actually applied, or NULL to
+	                discard.
+	actual_height   Receives the height actually applied, or NULL to
+	                discard.
+
+   RESULTS
+	On error, both *actual_width and *actual_height are set to -1.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG width, height;
+
+	    MB_SetVirtualSize(1920, 1080, &width, &height);
+	    Printf("Virtual size applied: %ld x %ld\n", width, height);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetVirtualSize(),
+	mailbox.resource/MB_SetPhysicalSize(),
+	mailbox.resource/MB_SetDisplayNum()
+
+mailbox.resource/MB_SetVoltage                   mailbox.resource/MB_SetVoltage
+
+   NAME
+	MB_SetVoltage -- set a rail's voltage offset (V1.1)
+
+   SYNOPSIS
+	offset = MB_SetVoltage( voltage_id, value )
+	d0                      d0          d1
+
+	ULONG MB_SetVoltage(ULONG, LONG);
+
+   FUNCTION
+	Sets a power rail's voltage offset, using property tag
+	SET_VOLTAGE (0x00038003).
+
+   INPUTS
+	voltage_id      The rail to set, see VOLTAGE_ID_* in
+	                resources/mailbox.h.
+	value           A signed offset from 1.2V in units of 25mV.
+
+   RESULTS
+	offset          The offset actually applied, or -1 on a mailbox
+	                transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG offset = MB_SetVoltage(VOLTAGE_ID_CORE, -2);
+	    Printf("Core voltage offset set to: %ld\n", offset);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_GetVoltage()
+
+mailbox.resource/MB_StringCommand             mailbox.resource/MB_StringCommand
+
+   NAME
+	MB_StringCommand -- send a vcgencmd-style text command (V1.0)
+
+   SYNOPSIS
+	length = MB_StringCommand( command, reply, reply_capacity )
+	d0                         a0       a1     d0
+
+	ULONG MB_StringCommand(STRPTR, STRPTR, ULONG);
+
+   FUNCTION
+	Sends a null-terminated ASCII command string using the
+	GET_GENCMD_RESULT property tag (0x00030080), the same tag
+	vcgencmd uses on Linux, and copies the firmware's text reply
+	into the caller's buffer.
+
+   INPUTS
+	command         A null-terminated ASCII command string, e.g.
+	                "measure_temp". May not exceed 1023 characters.
+	reply           A buffer to receive the reply text, or NULL to discard
+	                it.
+	reply_capacity  The size in bytes of the reply buffer. The reply is
+	                truncated to whichever is smaller: this value or 1024.
+
+   RESULTS
+	length          The reply length reported by the firmware, or -1 on a
+	                mailbox transport error or an oversized command
+	                string.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    UBYTE reply[256];
+
+	    MB_StringCommand("measure_temp", reply, sizeof(reply));
+	    Printf("vcgencmd reply: %s\n", reply);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_RawCommand()
+
+mailbox.resource/MB_UnlockMemory               mailbox.resource/MB_UnlockMemory
+
+   NAME
+	MB_UnlockMemory -- unlock a GPU memory handle (V1.1)
+
+   SYNOPSIS
+	status = MB_UnlockMemory( handle )
+	d0                        d0
+
+	ULONG MB_UnlockMemory(ULONG);
+
+   FUNCTION
+	Unlocks a GPU memory block previously locked by MB_LockMemory(),
+	using property tag UNLOCK_MEMORY (0x0003000e).
+
+   INPUTS
+	handle          A handle returned by MB_AllocateMemory().
+
+   RESULTS
+	status          0 on success, or -1 on a mailbox transport error.
+
+   EXAMPLES
+	#include <proto/exec.h>
+	#include <proto/dos.h>
+	#include <proto/mailbox.h>
+	#include <resources/mailbox.h>
+
+	APTR MailboxBase = OpenResource(MAILBOXNAME);
+	if (MailboxBase)
+	{
+	    ULONG handle = MB_AllocateMemory(4096, 4, MEM_FLAG_COHERENT);
+	    ULONG busAddr = MB_LockMemory(handle);
+
+	    /* ... use the block at busAddr ... */
+
+	    MB_UnlockMemory(handle);
+	}
+
+   SEE ALSO
+	mailbox.resource/MB_LockMemory(),
+	mailbox.resource/MB_ReleaseMemory()
+
