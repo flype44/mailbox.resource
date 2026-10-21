@@ -49,5 +49,6 @@ set_target_properties(mailbox.resource PROPERTIES LINK_DEPENDS ${CMAKE_CURRENT_S
 # no install for devicetree.resource itself, it goes to ROM
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/sfd DESTINATION Developer)
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/Autodocs DESTINATION Developer)
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/resources DESTINATION Developer/include)
 install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/FD DESTINATION Developer)
 install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/include DESTINATION Developer)
